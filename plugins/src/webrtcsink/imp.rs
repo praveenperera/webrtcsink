@@ -2,20 +2,21 @@ use anyhow::Context;
 use gst::glib;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
-use gst_video::prelude::*;
-use gst_video::subclass::prelude::*;
 use gst::{gst_debug, gst_error, gst_info, gst_log, gst_trace, gst_warning};
 use gst_rtp::prelude::*;
+use gst_video::prelude::*;
+use gst_video::subclass::prelude::*;
 use gst_webrtc::WebRTCDataChannel;
 
-use async_std::task;
 use futures::prelude::*;
+use tokio::task;
 
 use anyhow::{anyhow, Error};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::ops::Mul;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use super::utils::{make_element, StreamProducer};
 use super::{WebRTCSinkCongestionControl, WebRTCSinkError, WebRTCSinkMitigationMode};
@@ -198,7 +199,7 @@ struct State {
     navigation_handler: Option<NavigationEventHandler>,
 }
 
-fn create_navigation_event<N: IsA< gst_video::Navigation>>(sink: &N, msg: &str) {
+fn create_navigation_event<N: IsA<gst_video::Navigation>>(sink: &N, msg: &str) {
     let event: Result<gst_video::NavigationEvent, _> = serde_json::from_str(msg);
 
     if let Ok(event) = event {
@@ -206,8 +207,6 @@ fn create_navigation_event<N: IsA< gst_video::Navigation>>(sink: &N, msg: &str) 
     } else {
         gst_error!(CAT, "Invalid navigation event: {:?}", msg);
     }
-
-
 }
 /// Simple utility for tearing down a pipeline cleanly
 struct PipelineWrapper(gst::Pipeline);
@@ -362,7 +361,8 @@ fn setup_encoding(
             // to incorrect color display in Chrome (but interestingly not in
             // Firefox). In any case, restrict to exclude RGB formats altogether,
             // and let videoconvert do the conversion properly if needed.
-            structure_builder = structure_builder.field("format", &gst::List::new(&[&"NV12", &"YV12", &"I420"]));
+            structure_builder =
+                structure_builder.field("format", &gst::List::new(&[&"NV12", &"YV12", &"I420"]));
         }
 
         gst::Caps::builder_full_with_any_features()
@@ -1194,11 +1194,7 @@ impl InputStream {
 }
 
 impl NavigationEventHandler {
-    pub fn new(
-        element: &super::WebRTCSink,
-        webrtcbin: &gst::Element,
-    ) -> Self {
-
+    pub fn new(element: &super::WebRTCSink, webrtcbin: &gst::Element) -> Self {
         let channel = webrtcbin.emit_by_name::<WebRTCDataChannel>(
             "create-data-channel",
             &[&"input", &None::<gst::Structure>],
@@ -1315,7 +1311,7 @@ impl WebRTCSink {
         }
 
         if let Some(receiver) = state.codecs_done_receiver.take() {
-            task::block_on(async {
+            task::spawn(async {
                 let _ = receiver.await;
             });
         }
@@ -1718,9 +1714,7 @@ impl WebRTCSink {
 
         element.emit_by_name::<()>("new-webrtcbin", &[&peer_id, &webrtcbin]);
         if settings.enable_data_channel_navigation {
-            state.navigation_handler = Some(
-                NavigationEventHandler::new(&element, &webrtcbin)
-            );
+            state.navigation_handler = Some(NavigationEventHandler::new(&element, &webrtcbin));
         }
 
         pipeline.set_state(gst::State::Playing).map_err(|err| {
@@ -1816,27 +1810,24 @@ impl WebRTCSink {
             let peer_id_clone = peer_id.clone();
 
             task::spawn(async move {
-                let mut interval =
-                    async_std::stream::interval(std::time::Duration::from_millis(100));
+                let mut interval = tokio::time::interval(Duration::from_millis(100));
 
-                while interval.next().await.is_some() {
-                    let element_clone = element_clone.clone();
-                    let peer_id_clone = peer_id_clone.clone();
-                    if let Some(webrtcbin) = webrtcbin.upgrade() {
-                        let promise = gst::Promise::with_change_func(move |reply| {
-                            if let Some(element) = element_clone.upgrade() {
-                                let this = Self::from_instance(&element);
+                interval.tick().await;
 
-                                if let Ok(Some(stats)) = reply {
-                                    this.process_webrtcbin_stats(&element, &peer_id_clone, stats);
-                                }
+                let element_clone = element_clone.clone();
+                let peer_id_clone = peer_id_clone.clone();
+                if let Some(webrtcbin) = webrtcbin.upgrade() {
+                    let promise = gst::Promise::with_change_func(move |reply| {
+                        if let Some(element) = element_clone.upgrade() {
+                            let this = Self::from_instance(&element);
+
+                            if let Ok(Some(stats)) = reply {
+                                this.process_webrtcbin_stats(&element, &peer_id_clone, stats);
                             }
-                        });
+                        }
+                    });
 
-                        webrtcbin.emit_by_name::<()>("get-stats", &[&None::<gst::Pad>, &promise]);
-                    } else {
-                        break;
-                    }
+                    webrtcbin.emit_by_name::<()>("get-stats", &[&None::<gst::Pad>, &promise]);
                 }
             });
 
@@ -2398,7 +2389,8 @@ impl ObjectImpl for WebRTCSink {
             }
             "enable-data-channel-navigation" => {
                 let mut settings = self.settings.lock().unwrap();
-                settings.enable_data_channel_navigation = value.get::<bool>().expect("type checked upstream");
+                settings.enable_data_channel_navigation =
+                    value.get::<bool>().expect("type checked upstream");
             }
             _ => unimplemented!(),
         }
@@ -2664,17 +2656,14 @@ impl NavigationImpl for WebRTCSink {
         let mut state = self.state.lock().unwrap();
         let event = gst::event::Navigation::new(event_def);
 
-        state
-            .streams
-            .iter_mut()
-            .for_each(|(_, stream)| {
-                if stream.sink_pad.name().starts_with("video_") {
-                    gst_log!(CAT, "Navigating to: {:?}", event);
-                    // FIXME: Handle multi tracks.
-                    if !stream.sink_pad.push_event(event.clone()) {
-                        gst_info!(CAT, "Could not send event: {:?}", event);
-                    }
+        state.streams.iter_mut().for_each(|(_, stream)| {
+            if stream.sink_pad.name().starts_with("video_") {
+                gst_log!(CAT, "Navigating to: {:?}", event);
+                // FIXME: Handle multi tracks.
+                if !stream.sink_pad.push_event(event.clone()) {
+                    gst_info!(CAT, "Could not send event: {:?}", event);
                 }
-            });
+            }
+        });
     }
 }
