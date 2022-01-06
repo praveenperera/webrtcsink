@@ -9,18 +9,18 @@ repository = "https://github.com/centricular/webrtcsink/"
 build = "build.rs"
 
 [dependencies]
-gst = { package = "gstreamer", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", features = ["v1_20", "ser_de"] }
-gst-app = { package = "gstreamer-app", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", features = ["v1_20"] }
-gst-video = { package = "gstreamer-video", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", features = ["v1_20", "ser_de"] }
-gst-webrtc = { package = "gstreamer-webrtc", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", features = ["v1_20"] }
-gst-sdp = { package = "gstreamer-sdp", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", features = ["v1_20"] }
-gst-rtp = { package = "gstreamer-rtp", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", features = ["v1_20"] }
+gst = { package = "gstreamer", git = "https://github.com/sdroege/gstreamer-rs", features = ["v1_20", "ser_de"] }
+gst-app = { package = "gstreamer-app", git = "https://github.com/sdroege/gstreamer-rs", features = ["v1_20"] }
+gst-video = { package = "gstreamer-video", git = "https://github.com/sdroege/gstreamer-rs", features = ["v1_20", "ser_de"] }
+gst-webrtc = { package = "gstreamer-webrtc", git = "https://github.com/sdroege/gstreamer-rs", features = ["v1_20"] }
+gst-sdp = { package = "gstreamer-sdp", git = "https://github.com/sdroege/gstreamer-rs", features = ["v1_20"] }
+gst-rtp = { package = "gstreamer-rtp", git = "https://github.com/sdroege/gstreamer-rs", features = ["v1_20"] }
 once_cell = "1.0"
 smallvec = "1"
 anyhow = "1"
 thiserror = "1"
 futures = "0.3"
-tokio = {version = "1", features = ["time", "rt-multi-thread"]}
+tokio = {version = "1.15", features = ["time", "rt-multi-thread"]}
 async-std = { version = "1", features = ["unstable"] }
 async-tungstenite = { version = "0.16", features = ["async-std-runtime", "async-native-tls"] }
 serde = "1"
