@@ -1,7 +1,17 @@
 use gst::glib;
+use once_cell::sync::Lazy;
 
 mod signaller;
 pub mod webrtcsink;
+
+pub static RUNTIME_HANDLE: Lazy<tokio::runtime::Handle> = Lazy::new(|| {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle
+    } else {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.handle().clone()
+    }
+});
 
 fn plugin_init(plugin: &gst::Plugin) -> Result<(), glib::BoolError> {
     webrtcsink::register(plugin)?;

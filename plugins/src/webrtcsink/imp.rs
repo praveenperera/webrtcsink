@@ -1,3 +1,5 @@
+use crate::RUNTIME_HANDLE;
+
 use anyhow::Context;
 use gst::glib;
 use gst::prelude::*;
@@ -9,7 +11,6 @@ use gst_video::subclass::prelude::*;
 use gst_webrtc::WebRTCDataChannel;
 
 use futures::prelude::*;
-use tokio::task;
 
 use anyhow::{anyhow, Error};
 use once_cell::sync::Lazy;
@@ -1311,7 +1312,7 @@ impl WebRTCSink {
         }
 
         if let Some(receiver) = state.codecs_done_receiver.take() {
-            task::spawn(async {
+            RUNTIME_HANDLE.spawn(async {
                 let _ = receiver.await;
             });
         }
@@ -1661,7 +1662,7 @@ impl WebRTCSink {
         let pipeline_clone = pipeline.downgrade();
         let peer_id_clone = peer_id.to_owned();
 
-        task::spawn(async move {
+        RUNTIME_HANDLE.spawn(async move {
             while let Some(msg) = bus_stream.next().await {
                 if let Some(element) = element_clone.upgrade() {
                     let this = Self::from_instance(&element);
@@ -1809,7 +1810,7 @@ impl WebRTCSink {
             let webrtcbin = consumer.webrtcbin.downgrade();
             let peer_id_clone = peer_id.clone();
 
-            task::spawn(async move {
+            RUNTIME_HANDLE.spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(100));
 
                 interval.tick().await;
@@ -2158,7 +2159,8 @@ impl WebRTCSink {
 
                     if all_pads_have_caps {
                         let element_clone = element.downgrade();
-                        task::spawn(async move {
+
+                        RUNTIME_HANDLE.spawn(async move {
                             if let Some(element) = element_clone.upgrade() {
                                 let this = Self::from_instance(&element);
                                 let (fut, handle) =
